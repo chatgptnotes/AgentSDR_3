@@ -17,8 +17,12 @@ class SupabaseManager:
             )
         
         # Set auth token if available in session
-        if 'supabase_token' in session:
-            self._client.auth.set_session(session['supabase_token'], session.get('supabase_refresh_token'))
+        try:
+            if 'supabase_token' in session:
+                self._client.auth.set_session(session['supabase_token'], session.get('supabase_refresh_token'))
+        except RuntimeError:
+            # No request context, skip session handling
+            pass
         
         return self._client
     
@@ -33,14 +37,22 @@ class SupabaseManager:
     
     def set_session(self, access_token: str, refresh_token: str = None):
         """Set the current session tokens"""
-        session['supabase_token'] = access_token
-        if refresh_token:
-            session['supabase_refresh_token'] = refresh_token
+        try:
+            session['supabase_token'] = access_token
+            if refresh_token:
+                session['supabase_refresh_token'] = refresh_token
+        except RuntimeError:
+            # No request context, skip session handling
+            pass
     
     def clear_session(self):
         """Clear the current session tokens"""
-        session.pop('supabase_token', None)
-        session.pop('supabase_refresh_token', None)
+        try:
+            session.pop('supabase_token', None)
+            session.pop('supabase_refresh_token', None)
+        except RuntimeError:
+            # No request context, skip session handling
+            pass
     
     def get_user(self):
         """Get the current authenticated user"""

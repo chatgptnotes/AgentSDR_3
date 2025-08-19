@@ -67,33 +67,83 @@ def signup():
     if form.validate_on_submit():
         try:
             supabase_client = get_supabase()
-            response = supabase_client.auth.sign_up({
-                'email': form.email.data,
-                'password': form.password.data
-            })
             
-            if response.user:
-                # Create user in our app
-                user = User.create_user(
-                    email=form.email.data,
-                    display_name=form.display_name.data
-                )
+            # Try to create user in Supabase Auth
+            try:
+                response = supabase_client.auth.sign_up({
+                    'email': form.email.data,
+                    'password': form.password.data
+                })
                 
-                if user:
-                    login_user(user)
-                    
-                    # Store Supabase tokens in session
-                    supabase.set_session(
-                        response.session.access_token,
-                        response.session.refresh_token
+                if response.user:
+                    # Create user in our app
+                    user = User.create_user(
+                        email=form.email.data,
+                        display_name=form.display_name.data
                     )
                     
-                    flash('Account created successfully!', 'success')
-                    return redirect(url_for('main.dashboard'))
+                    if user:
+                        login_user(user)
+                        
+                        # Store Supabase tokens in session
+                        supabase.set_session(
+                            response.session.access_token,
+                            response.session.refresh_token
+                        )
+                        
+                        flash('Account created successfully!', 'success')
+                        return redirect(url_for('main.dashboard'))
+                    else:
+                        flash('Failed to create user profile.', 'error')
                 else:
-                    flash('Failed to create user profile.', 'error')
-            else:
-                flash('Failed to create account.', 'error')
+                    flash('Failed to create account.', 'error')
+                    
+            except Exception as auth_error:
+                # Check if the error is about user already existing
+                if "User already registered" in str(auth_error):
+                    # User exists in Auth, check if they exist in our database
+                    existing_user = User.get_by_email(form.email.data)
+                    if existing_user:
+                        flash('An account with this email already exists. Please sign in instead.', 'error')
+                        return redirect(url_for('auth.login'))
+                    else:
+                        # User exists in Auth but not in our database - sync them
+                        try:
+                            # Get user from Auth and create in database
+                            auth_users = supabase_client.auth.admin.list_users()
+                            for auth_user in auth_users:
+                                if auth_user.email == form.email.data:
+                                    # Create user in database with the Auth user's ID
+                                    from agentsdr.core.supabase_client import get_service_supabase
+                                    service_supabase = get_service_supabase()
+                                    
+                                    user_data = {
+                                        'id': auth_user.id,
+                                        'email': auth_user.email,
+                                        'display_name': form.display_name.data,
+                                        'is_super_admin': False
+                                    }
+                                    
+                                    result = service_supabase.table('users').insert(user_data).execute()
+                                    if result.data:
+                                        user = User(
+                                            id=auth_user.id,
+                                            email=auth_user.email,
+                                            display_name=form.display_name.data
+                                        )
+                                        login_user(user)
+                                        flash('Account synced successfully! Welcome back!', 'success')
+                                        return redirect(url_for('main.dashboard'))
+                                    break
+                        except Exception as sync_error:
+                            current_app.logger.error(f"Error syncing user: {sync_error}")
+                        
+                        flash('An account with this email already exists. Please sign in instead.', 'error')
+                        return redirect(url_for('auth.login'))
+                else:
+                    # Re-raise other auth errors
+                    raise auth_error
+                    
         except Exception as e:
             current_app.logger.error(f"Signup error: {e}")
             flash('Account creation failed. Please try again.', 'error')

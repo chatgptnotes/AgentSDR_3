@@ -617,8 +617,18 @@ def summarize_emails(org_slug, agent_id):
             current_app.logger.error("No JSON data received, using defaults")
             data = {'type': 'last_24_hours', 'count': 10}
 
-        criteria_type = data.get('type', 'last_24_hours')
-        count = data.get('count', 10)
+        # Normalize inputs coming from the UI (which may be strings)
+        criteria_type = str(data.get('type', 'last_24_hours')).strip() or 'last_24_hours'
+        try:
+            count = int(data.get('count', 10))
+        except (ValueError, TypeError):
+            count = 10
+        # Keep count within a reasonable range for Gmail API
+        if count <= 0:
+            count = 10
+        if count > 100:
+            count = 100
+        current_app.logger.info(f"Raw data received: {data}")
         current_app.logger.info(f"Criteria: type={criteria_type}, count={count}")
 
         supabase = get_service_supabase()
@@ -674,7 +684,9 @@ def summarize_emails(org_slug, agent_id):
             # Check if it's a token-related error
             if 'token' in str(fetch_error).lower() or 'auth' in str(fetch_error).lower():
                 return jsonify({'error': 'Gmail authentication failed. Please reconnect your Gmail account.'}), 401
-            elif 'quota' in str(fetch_error).lower() or 'rate' in str(fetch_error).lower():
+            elif 'quota' in str(fetch_error).lower() or 'insufficient' in str(fetch_error).lower():
+                return jsonify({'error': 'OpenAI API quota exceeded. Please add credits to your OpenAI account.'}), 429
+            elif 'rate' in str(fetch_error).lower():
                 return jsonify({'error': 'Rate limit exceeded. Please try again in a few minutes.'}), 429
             else:
                 return jsonify({'error': f'Failed to fetch emails: {str(fetch_error)}'}), 500

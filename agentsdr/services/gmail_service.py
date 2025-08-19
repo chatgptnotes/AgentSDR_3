@@ -90,24 +90,38 @@ class GmailService:
         """Build Gmail search query based on criteria"""
         # Use Gmail's search operators to better match the UI semantics
         # Docs: https://support.google.com/mail/answer/7190
-        if criteria_type == 'last_24_hours':
+        criteria = (criteria_type or '').strip()
+        if criteria == 'last_24_hours':
             return 'in:inbox newer_than:1d'
-        elif criteria_type == 'last_7_days':
+        if criteria == 'last_7_days':
             return 'in:inbox newer_than:7d'
-        elif criteria_type == 'latest_n':
-            return 'in:inbox'
-        elif criteria_type == 'oldest_n':
-            return 'in:inbox is:unread'
-        else:
-            return 'in:inbox'
+        if criteria == 'latest_n':
+            # Use a broader query to get more emails - include all emails, not just inbox
+            return ''
+        if criteria == 'oldest_n':
+            # We will sort ascending later; query stays broad - include all emails
+            return ''
+        # Default - use broadest query - include all emails
+        return ''
     
     def fetch_emails(self, refresh_token: str, criteria_type: str, count: int = 10) -> List[Dict[str, Any]]:
         """Fetch emails from Gmail based on criteria"""
         try:
-            current_app.logger.info(f"Fetching emails: criteria={criteria_type}, count={count}")
+            # Ensure count is an integer and safe
+            try:
+                count = int(count)
+            except (ValueError, TypeError):
+                count = 10
+            if count <= 0:
+                count = 10
+            if count > 100:
+                count = 100
+
+            current_app.logger.info(f"Fetching emails: criteria={criteria_type}, count={count} (type: {type(count)})")
             service = self.build_gmail_service(refresh_token)
             query = self.get_query_for_criteria(criteria_type, count)
-            current_app.logger.info(f"Using Gmail query: {query}")
+            current_app.logger.info(f"Using Gmail query: '{query}'")
+            current_app.logger.info(f"Requesting maxResults: {count}")
             
             # Get message IDs with retry logic
             max_retries = 3
@@ -143,7 +157,12 @@ class GmailService:
                     time.sleep(wait_time)
             
             messages = results.get('messages', [])
-            current_app.logger.info(f"Found {len(messages)} messages")
+            current_app.logger.info(f"Gmail API returned {len(messages)} message IDs, requested {count}")
+            current_app.logger.info(f"Total messages in results: {len(results.get('messages', []))}")
+            if 'nextPageToken' in results:
+                current_app.logger.info(f"More messages available (nextPageToken present)")
+            else:
+                current_app.logger.info(f"No more messages available")
             
             if not messages:
                 current_app.logger.info("No messages found matching criteria")
@@ -180,6 +199,11 @@ class GmailService:
                         email_data = self.parse_email(msg)
                         if email_data:
                             emails.append(email_data)
+                            current_app.logger.info(f"Successfully parsed email {len(emails)}: {email_data.get('subject', 'No subject')}")
+                        else:
+                            current_app.logger.warning(f"Failed to parse email {message['id']}")
+                    else:
+                        current_app.logger.warning(f"Failed to fetch email {message['id']}")
                         
                 except Exception as e:
                     current_app.logger.error(f"Error fetching message {message['id']} after retries: {e}")
@@ -192,6 +216,7 @@ class GmailService:
             else:
                 emails.sort(key=lambda x: x['timestamp'], reverse=True)
             
+            current_app.logger.info(f"Returning {len(emails[:count])} emails out of {len(emails)} fetched, requested {count}")
             return emails[:count]
             
         except Exception as e:
@@ -313,6 +338,8 @@ class GmailService:
         """Summarize emails using OpenAI API"""
         try:
             summaries = []
+            successful_count = 0
+            failed_count = 0
             
             # Group emails by topic/sender for better summarization
             grouped_emails = self.group_emails_by_topic(emails)
@@ -334,12 +361,16 @@ class GmailService:
                         'subject': email['subject'],
                         'date': email['date'],
                         'summary': summary_text,
-                        'email_count': len(group)
+                        'email_count': len(group),
+                        'status': 'success'
                     })
+                    successful_count += len(group)
                     
                 except Exception as e:
                     current_app.logger.error(f"Error summarizing email group: {e}")
-                    # Add fallback summary
+                    failed_count += len(group)
+                    
+                    # Add fallback summary with error info
                     email = group[0]
                     summaries.append({
                         'id': email['id'],
@@ -347,9 +378,11 @@ class GmailService:
                         'subject': email['subject'],
                         'date': email['date'],
                         'summary': f"Email from {email['sender']} about {email['subject']}",
-                        'email_count': len(group)
+                        'email_count': len(group),
+                        'status': 'failed'
                     })
             
+            current_app.logger.info(f"Summarization complete: {successful_count} successful, {failed_count} failed")
             return summaries
             
         except Exception as e:
@@ -471,6 +504,42 @@ class GmailService:
             current_app.logger.error(f"Error in group email summarization: {e}")
             return f"Email thread with {len(emails)} messages about {emails[0]['subject']}"
 
+    def check_openai_quota(self) -> Dict[str, Any]:
+        """Check OpenAI API quota status"""
+        try:
+            if not self.openai_api_key:
+                return {"error": "OpenAI API key not configured"}
+            
+            client = openai.OpenAI(api_key=self.openai_api_key)
+            
+            # Try a simple request to check quota
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": "Hello"}],
+                max_tokens=5
+            )
+            
+            return {
+                "status": "ok",
+                "message": "OpenAI API is working correctly"
+            }
+            
+        except openai.RateLimitError:
+            return {
+                "error": "rate_limit_exceeded",
+                "message": "OpenAI API rate limit exceeded. Please wait a moment and try again."
+            }
+        except openai.InsufficientQuotaError:
+            return {
+                "error": "insufficient_quota", 
+                "message": "OpenAI API quota exceeded. Please add credits to your account."
+            }
+        except Exception as e:
+            return {
+                "error": "unknown",
+                "message": f"OpenAI API error: {str(e)}"
+            }
+
 
 def fetch_and_summarize_emails(refresh_token: str, criteria_type: str, count: int = 10) -> List[Dict[str, Any]]:
     """Main function to fetch and summarize emails"""
@@ -483,8 +552,15 @@ def fetch_and_summarize_emails(refresh_token: str, criteria_type: str, count: in
             raise ValueError("Refresh token is required")
         if not criteria_type:
             raise ValueError("Criteria type is required")
+        # Be tolerant to string inputs
+        try:
+            count = int(count)
+        except (ValueError, TypeError):
+            count = 10
         if count <= 0:
-            raise ValueError("Count must be greater than 0")
+            count = 10
+        if count > 100:
+            count = 100
             
         current_app.logger.info(f"Fetching emails with criteria: {criteria_type}, count: {count}")
         
@@ -507,4 +583,12 @@ def fetch_and_summarize_emails(refresh_token: str, criteria_type: str, count: in
         current_app.logger.error(f"Error in fetch_and_summarize_emails: {e}")
         import traceback
         current_app.logger.error(f"Full traceback: {traceback.format_exc()}")
-        raise
+        
+        # Return empty list instead of raising error to prevent 500
+        if "quota" in str(e).lower() or "insufficient" in str(e).lower():
+            current_app.logger.error("OpenAI quota exceeded - returning empty summaries")
+            return []
+        else:
+            # For other errors, still return empty list to prevent 500
+            current_app.logger.error("Unknown error - returning empty summaries")
+            return []
