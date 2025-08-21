@@ -94,17 +94,21 @@
                 </style>
 
                 <label class="block text-sm font-medium text-secondary-700 mb-2">Choose a starting point</label>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 reveal-list">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 reveal-list">
                     <button type="button" :aria-pressed="agentType==='email_summarizer'" :class="agentType==='email_summarizer' ? 'option-active' : ''" @click.stop="agentType='email_summarizer'" class="border rounded-lg p-4 text-left hover:border-secondary-400">
-                        <div class="font-medium mb-1">Email summarizer</div>
+                        <div class="font-medium mb-1">📧 Email summarizer</div>
                         <div class="text-sm text-secondary-600">Summarize emails automatically.</div>
                     </button>
                     <button type="button" :aria-pressed="agentType==='hubspot_data'" :class="agentType==='hubspot_data' ? 'option-active' : ''" @click.stop="agentType='hubspot_data'" class="border rounded-lg p-4 text-left hover:border-secondary-400">
-                        <div class="font-medium mb-1">HubSpot data</div>
+                        <div class="font-medium mb-1">🔗 HubSpot data</div>
                         <div class="text-sm text-secondary-600">Connect and use HubSpot data.</div>
                     </button>
+                    <button type="button" :aria-pressed="agentType==='calendar'" :class="agentType==='calendar' ? 'option-active' : ''" @click.stop="agentType='calendar'" class="border rounded-lg p-4 text-left hover:border-secondary-400">
+                        <div class="font-medium mb-1">📅 Calendar agent</div>
+                        <div class="text-sm text-secondary-600">Manage and analyze calendar events.</div>
+                    </button>
                     <button type="button" :aria-pressed="agentType==='custom'" :class="agentType==='custom' ? 'option-active' : ''" @click.stop="agentType='custom'" class="border rounded-lg p-4 text-left hover:border-secondary-400">
-                        <div class="font-medium mb-1">Custom agent</div>
+                        <div class="font-medium mb-1">🤖 Custom agent</div>
                         <div class="text-sm text-secondary-600">Start from scratch.</div>
                     </button>
                 </div>

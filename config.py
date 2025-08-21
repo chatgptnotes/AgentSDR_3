@@ -1,7 +1,8 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+# Revert to default behavior: load .env from current working directory
+load_dotenv(override=True, encoding='utf-8')
 
 class Config:
     SECRET_KEY = os.environ.get('FLASK_SECRET_KEY') or 'dev-secret-key-change-in-production'
@@ -19,6 +20,11 @@ class Config:
     # Rate limiting
     RATELIMIT_DEFAULT = "200 per day;50 per hour"
     RATELIMIT_STORAGE_URL = "memory://"
+
+    # Google Calendar OAuth settings
+    GOOGLE_CALENDAR_CLIENT_ID = os.environ.get('GOOGLE_CALENDAR_CLIENT_ID')
+    GOOGLE_CALENDAR_CLIENT_SECRET = os.environ.get('GOOGLE_CALENDAR_CLIENT_SECRET')
+    GOOGLE_CALENDAR_REDIRECT_URI = os.environ.get('GOOGLE_CALENDAR_REDIRECT_URI', 'http://localhost:5000/auth/google/callback')
     
     # Security
     SESSION_COOKIE_SECURE = os.environ.get('FLASK_ENV') == 'production'

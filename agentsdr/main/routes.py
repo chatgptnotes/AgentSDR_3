@@ -10,6 +10,16 @@ def index():
         return redirect(url_for('main.dashboard'))
     return render_template('main/index.html')
 
+@main_bp.route('/signup')
+def signup_redirect():
+    """Redirect /signup to /auth/signup"""
+    return redirect(url_for('auth.signup'))
+
+@main_bp.route('/login')
+def login_redirect():
+    """Redirect /login to /auth/login"""
+    return redirect(url_for('auth.login'))
+
 @main_bp.route('/dashboard')
 @login_required
 def dashboard():

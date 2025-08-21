@@ -76,10 +76,11 @@ def signup():
                 })
                 
                 if response.user:
-                    # Create user in our app
+                    # Create user in our app using the Supabase Auth user ID
                     user = User.create_user(
                         email=form.email.data,
-                        display_name=form.display_name.data
+                        display_name=form.display_name.data,
+                        user_id=response.user.id
                     )
                     
                     if user:
@@ -215,7 +216,8 @@ def accept_invitation():
                     if auth_response.user:
                         user = User.create_user(
                             email=form.email.data,
-                            display_name=form.display_name.data
+                            display_name=form.display_name.data,
+                            user_id=auth_response.user.id
                         )
                         
                         if user:

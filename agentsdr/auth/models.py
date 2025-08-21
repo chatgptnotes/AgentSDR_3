@@ -50,7 +50,7 @@ class User(UserMixin):
         return None
     
     @staticmethod
-    def create_user(email: str, display_name: str = None, is_super_admin: bool = False) -> Optional['User']:
+    def create_user(email: str, display_name: str = None, is_super_admin: bool = False, user_id: str = None) -> Optional['User']:
         """Create a new user in Supabase
 
         Role Hierarchy:
@@ -61,17 +61,19 @@ class User(UserMixin):
         try:
             supabase = get_service_supabase()
 
-            # Only make super admin if explicitly requested (not for regular signups)
-            # Regular users who sign up will be normal users
-            # They become organization admins only when they create an organization
+            # Use provided user_id or generate new one
+            # When user_id is provided (from Supabase Auth), use that to maintain consistency
+            if user_id is None:
+                user_id = str(uuid.uuid4())
 
             user_data = {
-                'id': str(uuid.uuid4()),
+                'id': user_id,
                 'email': email,
                 'display_name': display_name,
                 'is_super_admin': is_super_admin  # False by default for regular signups
             }
 
+            # Try to insert the user with service role (should bypass RLS)
             response = supabase.table('users').insert(user_data).execute()
 
             if response.data:
@@ -79,13 +81,21 @@ class User(UserMixin):
                 print(f"Created {user_role}: {email}")
 
                 return User(
-                    id=user_data['id'],
+                    id=user_id,
                     email=email,
                     display_name=display_name,
                     is_super_admin=is_super_admin
                 )
+            else:
+                print(f"Failed to create user: No data returned from insert")
+
         except Exception as e:
             print(f"Error creating user: {e}")
+            # If RLS is blocking, try alternative approach
+            if "row-level security policy" in str(e).lower():
+                print("RLS policy blocking user creation. This needs to be fixed in Supabase dashboard.")
+                print("Please run the following SQL in your Supabase SQL Editor:")
+                print("CREATE POLICY \"Service role can insert users\" ON public.users FOR INSERT TO service_role WITH CHECK (true);")
         return None
     
     def get_organizations(self):

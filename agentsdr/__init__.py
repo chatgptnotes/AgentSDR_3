@@ -33,11 +33,13 @@ def create_app(config_name=None):
     from agentsdr.orgs import orgs_bp
     from agentsdr.records import records_bp
     from agentsdr.admin import admin_bp
-    
+    from agentsdr.calendar import calendar_bp
+
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(orgs_bp, url_prefix='/orgs')
     app.register_blueprint(records_bp, url_prefix='/records')
     app.register_blueprint(admin_bp, url_prefix='/admin')
+    app.register_blueprint(calendar_bp, url_prefix='/calendar')
 
     # Register main routes
     from agentsdr.main import main_bp
@@ -45,8 +47,11 @@ def create_app(config_name=None):
 
     # Exempt JSON API routes from CSRF where appropriate
     try:
-        from agentsdr.orgs.routes import summarize_emails
+        from agentsdr.orgs.routes import summarize_emails, hubspot_proposal, hubspot_patients, patient_report
         csrf.exempt(summarize_emails)
+        csrf.exempt(hubspot_proposal)
+        csrf.exempt(hubspot_patients)
+        csrf.exempt(patient_report)
     except Exception:
         # If import fails during certain tooling or tests, skip exemption
         pass

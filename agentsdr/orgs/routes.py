@@ -6,10 +6,12 @@ from agentsdr.core.rbac import require_org_admin, require_org_member, is_org_adm
 from agentsdr.core.email import get_email_service
 from agentsdr.core.models import CreateOrganizationRequest, UpdateOrganizationRequest, CreateInvitationRequest
 from agentsdr.services.gmail_service import fetch_and_summarize_emails
-
 from datetime import datetime, timedelta
 import uuid
 import secrets
+
+# HubSpot service import (added)
+from agentsdr.services.hubspot_service import HubSpotService
 
 @orgs_bp.route('/create', methods=['GET', 'POST'])
 @login_required
@@ -375,10 +377,17 @@ def view_agent(org_slug, agent_id):
             config = agent.get('config', {})
             gmail_connected = bool(config.get('gmail_refresh_token'))
 
+        # Check if HubSpot is connected for hubspot_data agents (added)
+        hubspot_connected = False
+        if agent['agent_type'] == 'hubspot_data':
+            config = agent.get('config', {})
+            hubspot_connected = bool(config.get('hubspot_refresh_token') or config.get('hubspot_access_token'))
+
         return render_template('orgs/agent_detail.html',
                              organization=organization,
                              agent=agent,
-                             gmail_connected=gmail_connected)
+                             gmail_connected=gmail_connected,
+                             hubspot_connected=hubspot_connected)
 
     except Exception as e:
         current_app.logger.error(f"Error viewing agent: {e}")
@@ -974,4 +983,141 @@ def revoke_invitation(org_slug, invitation_id):
         return jsonify({'success': True})
 
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@orgs_bp.route('/<org_slug>/agents/<agent_id>/hubspot/auth')
+@require_org_member('org_slug')
+def hubspot_auth(org_slug, agent_id):
+    try:
+        supabase = get_service_supabase()
+        org = supabase.table('organizations').select('id').eq('slug', org_slug).limit(1).execute()
+        if not org.data:
+            flash('Organization not found.', 'error')
+            return redirect(url_for('main.dashboard'))
+        agent_resp = supabase.table('agents').select('*').eq('id', agent_id).eq('org_id', org.data[0]['id']).execute()
+        if not agent_resp.data:
+            flash('Agent not found.', 'error')
+            return redirect(url_for('orgs.list_agents', org_slug=org_slug))
+        state = f"{org_slug}:{agent_id}"
+        hs = HubSpotService()
+        url = hs.get_authorize_url(state)
+        return redirect(url)
+    except Exception as e:
+        current_app.logger.error(f"HubSpot auth start failed: {e}")
+        # Show the underlying reason (e.g., missing env var) to help users fix config quickly
+        try:
+            flash(f"Failed to start HubSpot auth: {e}", 'error')
+        except Exception:
+            pass
+        return redirect(url_for('orgs.view_agent', org_slug=org_slug, agent_id=agent_id))
+
+
+@orgs_bp.route('/hubspot/callback')
+def hubspot_callback():
+    try:
+        code = request.args.get('code')
+        state = request.args.get('state', '')
+        org_slug, agent_id = state.split(':', 1) if ':' in state else (None, None)
+        if not code or not org_slug or not agent_id:
+            flash('Invalid HubSpot callback.', 'error')
+            return redirect(url_for('main.dashboard'))
+        hs = HubSpotService()
+        tokens = hs.exchange_code_for_tokens(code)
+        supabase = get_service_supabase()
+        agent_resp = supabase.table('agents').select('config').eq('id', agent_id).limit(1).execute()
+        if not agent_resp.data:
+            flash('Agent not found.', 'error')
+            return redirect(url_for('orgs.list_agents', org_slug=org_slug))
+        config = agent_resp.data[0].get('config') or {}
+        config.update({
+            'hubspot_access_token': tokens.get('access_token'),
+            'hubspot_refresh_token': tokens.get('refresh_token')
+        })
+        supabase.table('agents').update({'config': config}).eq('id', agent_id).execute()
+        flash('HubSpot connected successfully!', 'success')
+        return redirect(url_for('orgs.view_agent', org_slug=org_slug, agent_id=agent_id))
+    except Exception as e:
+        current_app.logger.error(f"HubSpot callback failed: {e}")
+        flash('Failed to connect HubSpot.', 'error')
+        return redirect(url_for('main.dashboard'))
+
+
+@orgs_bp.route('/<org_slug>/agents/<agent_id>/hubspot/proposal', methods=['POST'])
+@require_org_member('org_slug')
+def hubspot_proposal(org_slug, agent_id):
+    """Proposal Drafting Bot: Pull latest data and generate proposal text."""
+    try:
+        data = request.get_json() or {}
+        industry = (data.get('industry') or 'Healthcare').strip()
+        client_type = (data.get('client_type') or 'B2B').strip()
+        supabase = get_service_supabase()
+        agent_resp = supabase.table('agents').select('*').eq('id', agent_id).limit(1).execute()
+        if not agent_resp.data:
+            return jsonify({'error': 'Agent not found'}), 404
+        agent = agent_resp.data[0]
+        if agent['agent_type'] != 'hubspot_data':
+            return jsonify({'error': 'Agent is not a HubSpot type'}), 400
+        config = agent.get('config') or {}
+        access = config.get('hubspot_access_token')
+        refresh = config.get('hubspot_refresh_token')
+        if not (access or refresh):
+            return jsonify({'error': 'HubSpot not connected'}), 400
+        hs = HubSpotService(access_token=access, refresh_token=refresh)
+        contacts = hs.fetch_contacts(limit=5)
+        companies = hs.fetch_companies(limit=3)
+        deals = hs.fetch_deals(limit=5)
+        context = HubSpotService.build_context(industry, client_type, contacts, companies, deals)
+        template_text = (data.get('template') or HubSpotService.default_template())
+        proposal_text = HubSpotService.render_template_text(template_text, context)
+        return jsonify({'success': True, 'proposal': proposal_text, 'context': context})
+    except Exception as e:
+        current_app.logger.error(f"HubSpot proposal failed: {e}")
+        return jsonify({'error': 'Failed to generate proposal'}), 500
+
+
+@orgs_bp.route('/<org_slug>/agents/<agent_id>/hubspot/patients', methods=['GET'])
+@require_org_member('org_slug')
+def hubspot_patients(org_slug, agent_id):
+    """Fetch patient data from HubSpot contacts for healthcare management."""
+    try:
+        supabase = get_service_supabase()
+        agent_resp = supabase.table('agents').select('*').eq('id', agent_id).limit(1).execute()
+        if not agent_resp.data:
+            return jsonify({'error': 'Agent not found'}), 404
+
+        agent = agent_resp.data[0]
+        if agent['agent_type'] != 'hubspot_data':
+            return jsonify({'error': 'Agent is not a HubSpot type'}), 400
+
+        config = agent.get('config') or {}
+        access = config.get('hubspot_access_token')
+        refresh = config.get('hubspot_refresh_token')
+        if not (access or refresh):
+            return jsonify({'error': 'HubSpot not connected'}), 400
+
+        hs = HubSpotService(access_token=access, refresh_token=refresh)
+        patients = hs.fetch_patients(limit=20)  # Fetch more patients for healthcare
+
+        return jsonify({'success': True, 'patients': patients})
+    except Exception as e:
+        current_app.logger.error(f"HubSpot patients fetch failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@orgs_bp.route('/<org_slug>/agents/<agent_id>/patient/report', methods=['POST'])
+@require_org_member('org_slug')
+def patient_report(org_slug, agent_id):
+    """Generate patient report (placeholder for future functionality)."""
+    try:
+        data = request.get_json() or {}
+        patient_id = data.get('patient_id')
+        notes = data.get('notes', '')
+
+        # For now, just return success - you can extend this later
+        current_app.logger.info(f"Patient report requested for patient {patient_id} with notes: {notes}")
+
+        return jsonify({'success': True, 'message': 'Patient report functionality coming soon'})
+    except Exception as e:
+        current_app.logger.error(f"Patient report failed: {e}")
         return jsonify({'error': str(e)}), 500

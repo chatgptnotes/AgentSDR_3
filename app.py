@@ -4,6 +4,13 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_wtf.csrf import CSRFProtect
 import os
+from dotenv import load_dotenv
+
+
+# Load .env file
+load_dotenv()
+
+print("Client ID:", os.getenv("HUBSPOT_CLIENT_ID"))  # Debug c
 
 from agentsdr import create_app
 

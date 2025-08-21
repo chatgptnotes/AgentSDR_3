@@ -31,6 +31,7 @@
                         <span class="text-white text-2xl">
                             {% if a.agent_type == 'email_summarizer' %}📧
                             {% elif a.agent_type == 'hubspot_data' %}🔗
+                            {% elif a.agent_type == 'calendar' %}📅
                             {% else %}🤖{% endif %}
                         </span>
                     </div>
