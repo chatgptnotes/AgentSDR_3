@@ -664,18 +664,12 @@ def summarize_emails(org_slug, agent_id):
             
             current_app.logger.info(f"Email summarization completed successfully with {len(summaries)} summaries")
 
-            # Store summaries in session for the dedicated summaries page
-            from flask import session
-            session[f'summaries_{agent_id}'] = {
-                'summaries': summaries,
-                'criteria_type': criteria_type,
-                'count': count,
-                'timestamp': datetime.utcnow().isoformat()
-            }
+            current_app.logger.info(f"Returning {len(summaries)} summaries directly")
 
             return jsonify({
                 'success': True,
-                'redirect_url': url_for('orgs.view_summaries', org_slug=org_slug, agent_id=agent_id),
+                'summaries': summaries,
+                'criteria_type': criteria_type,
                 'count': len(summaries)
             })
             
@@ -725,11 +719,34 @@ def view_summaries(org_slug, agent_id):
             config = agent.get('config', {})
             gmail_connected = bool(config.get('gmail_refresh_token'))
 
-        # Get summaries from session
+        # Get summaries from database using session ID
         from flask import session
-        summaries_data = session.get(f'summaries_{agent_id}', {})
-        summaries = summaries_data.get('summaries', [])
-        criteria_type = summaries_data.get('criteria_type', 'last_24_hours')
+        session_id = session.get(f'summaries_{agent_id}')
+        
+        if session_id:
+            # Retrieve from database
+            supabase = get_service_supabase()
+            record_resp = supabase.table('records').select('*').eq('session_id', session_id).eq('record_type', 'email_summaries').limit(1).execute()
+            
+            if record_resp.data:
+                record = record_resp.data[0]
+                summaries_data = record['data']
+                summaries = summaries_data.get('summaries', [])
+                criteria_type = summaries_data.get('criteria_type', 'last_24_hours')
+                
+                current_app.logger.info(f"Retrieved {len(summaries)} summaries from database for agent {agent_id}")
+                current_app.logger.info(f"Session ID: {session_id}")
+                if summaries:
+                    current_app.logger.info(f"First summary sender: {summaries[0].get('sender', 'Unknown')}")
+                    current_app.logger.info(f"Last summary sender: {summaries[-1].get('sender', 'Unknown')}")
+            else:
+                current_app.logger.warning(f"No record found for session_id: {session_id}")
+                summaries = []
+                criteria_type = 'last_24_hours'
+        else:
+            current_app.logger.warning(f"No session_id found for agent {agent_id}")
+            summaries = []
+            criteria_type = 'last_24_hours'
 
         return render_template('orgs/email_summaries.html',
                              organization=organization,
@@ -742,6 +759,143 @@ def view_summaries(org_slug, agent_id):
         current_app.logger.error(f"Error viewing summaries: {e}")
         flash('Error loading summaries.', 'error')
         return redirect(url_for('orgs.view_agent', org_slug=org_slug, agent_id=agent_id))
+
+
+@orgs_bp.route('/<org_slug>/agents/<agent_id>/schedule', methods=['GET', 'POST'])
+@require_org_member('org_slug')
+def manage_schedule(org_slug, agent_id):
+    """Get or create/update agent schedule"""
+    try:
+        current_app.logger.info(f"Managing schedule for org: {org_slug}, agent: {agent_id}")
+        supabase = get_service_supabase()
+
+        # Get organization
+        org_resp = supabase.table('organizations').select('*').eq('slug', org_slug).limit(1).execute()
+        if not org_resp.data:
+            current_app.logger.error(f"Organization not found: {org_slug}")
+            return jsonify({'error': 'Organization not found'}), 404
+        organization = org_resp.data[0]
+        current_app.logger.info(f"Found organization: {organization['id']}")
+
+        # Get agent
+        agent_resp = supabase.table('agents').select('*').eq('id', agent_id).eq('org_id', organization['id']).execute()
+        if not agent_resp.data:
+            current_app.logger.error(f"Agent not found: {agent_id}")
+            return jsonify({'error': 'Agent not found'}), 404
+        agent = agent_resp.data[0]
+        current_app.logger.info(f"Found agent: {agent['name']}")
+
+        if request.method == 'GET':
+            # Get current schedule
+            try:
+                schedule_resp = supabase.table('agent_schedules').select('*').eq('agent_id', agent_id).limit(1).execute()
+                schedule = schedule_resp.data[0] if schedule_resp.data else None
+                current_app.logger.info(f"Retrieved schedule: {schedule}")
+                
+                return jsonify({
+                    'success': True,
+                    'schedule': schedule
+                })
+            except Exception as e:
+                current_app.logger.error(f"Error getting schedule: {e}")
+                return jsonify({'error': f'Failed to get schedule: {str(e)}'}), 500
+        
+        elif request.method == 'POST':
+            data = request.get_json()
+            current_app.logger.info(f"Received schedule data: {data}")
+            
+            schedule_time = data.get('schedule_time')
+            recipient_email = data.get('recipient_email')
+            criteria_type = data.get('criteria_type', 'last_24_hours')
+            
+            if not schedule_time or not recipient_email:
+                current_app.logger.error("Missing required fields")
+                return jsonify({'error': 'Schedule time and recipient email are required'}), 400
+            
+            # Check if schedule exists
+            try:
+                existing_resp = supabase.table('agent_schedules').select('*').eq('agent_id', agent_id).limit(1).execute()
+                current_app.logger.info(f"Existing schedules: {existing_resp.data}")
+                
+                if existing_resp.data:
+                    # Update existing schedule
+                    schedule_id = existing_resp.data[0]['id']
+                    update_data = {
+                        'schedule_time': schedule_time,
+                        'recipient_email': recipient_email,
+                        'criteria_type': criteria_type,
+                        'updated_at': datetime.utcnow().isoformat()
+                    }
+                    
+                    current_app.logger.info(f"Updating schedule {schedule_id} with data: {update_data}")
+                    result = supabase.table('agent_schedules').update(update_data).eq('id', schedule_id).execute()
+                    current_app.logger.info(f"Update result: {result}")
+                else:
+                    # Create new schedule
+                    schedule_data = {
+                        'agent_id': agent_id,
+                        'org_id': organization['id'],
+                        'schedule_time': schedule_time,
+                        'recipient_email': recipient_email,
+                        'criteria_type': criteria_type,
+                        'created_by': g.user['id'],
+                        'is_active': True
+                    }
+                    
+                    current_app.logger.info(f"Creating new schedule with data: {schedule_data}")
+                    result = supabase.table('agent_schedules').insert(schedule_data).execute()
+                    current_app.logger.info(f"Insert result: {result}")
+                
+                return jsonify({
+                    'success': True,
+                    'message': 'Schedule saved successfully'
+                })
+                
+            except Exception as e:
+                current_app.logger.error(f"Error saving schedule: {e}")
+                return jsonify({'error': f'Failed to save schedule: {str(e)}'}), 500
+    
+    except Exception as e:
+        current_app.logger.error(f"Error managing schedule: {e}")
+        return jsonify({'error': f'Failed to manage schedule: {str(e)}'}), 500
+
+
+@orgs_bp.route('/<org_slug>/agents/<agent_id>/schedule/toggle', methods=['POST'])
+@require_org_member('org_slug')
+def toggle_schedule(org_slug, agent_id):
+    """Toggle schedule active/inactive"""
+    try:
+        supabase = get_service_supabase()
+
+        # Get organization
+        org_resp = supabase.table('organizations').select('*').eq('slug', org_slug).limit(1).execute()
+        if not org_resp.data:
+            return jsonify({'error': 'Organization not found'}), 404
+        organization = org_resp.data[0]
+
+        # Get current schedule
+        schedule_resp = supabase.table('agent_schedules').select('*').eq('agent_id', agent_id).limit(1).execute()
+        if not schedule_resp.data:
+            return jsonify({'error': 'No schedule found for this agent'}), 404
+        
+        schedule = schedule_resp.data[0]
+        new_status = not schedule['is_active']
+        
+        # Update schedule status
+        supabase.table('agent_schedules').update({
+            'is_active': new_status,
+            'updated_at': datetime.utcnow().isoformat()
+        }).eq('id', schedule['id']).execute()
+        
+        return jsonify({
+            'success': True,
+            'is_active': new_status,
+            'message': f"Schedule {'activated' if new_status else 'paused'}"
+        })
+    
+    except Exception as e:
+        current_app.logger.error(f"Error toggling schedule: {e}")
+        return jsonify({'error': 'Failed to toggle schedule'}), 500
 
 
 @orgs_bp.route('/<org_slug>/agents/<agent_id>', methods=['DELETE'])

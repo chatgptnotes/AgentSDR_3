@@ -138,11 +138,34 @@ class GmailService:
                             maxResults=min(max(count * 3, count), 100)
                         ).execute()
                     else:
-                        results = service.users().messages().list(
-                            userId='me',
-                            q=query,
-                            maxResults=count
-                        ).execute()
+                        # Request more messages than needed to ensure we get enough
+                        max_results = min(count * 2, 100)  # Request 2x the count, up to 100
+                        current_app.logger.info(f"Requesting maxResults: {max_results} for count: {count}")
+                        
+                        # Use pagination to get more messages if needed
+                        all_messages = []
+                        page_token = None
+                        
+                        while len(all_messages) < count and (page_token is not None or len(all_messages) == 0):
+                            request = service.users().messages().list(
+                                userId='me',
+                                q=query,
+                                maxResults=max_results,
+                                pageToken=page_token
+                            )
+                            results = request.execute()
+                            
+                            messages = results.get('messages', [])
+                            all_messages.extend(messages)
+                            
+                            page_token = results.get('nextPageToken')
+                            current_app.logger.info(f"Fetched {len(messages)} messages, total so far: {len(all_messages)}")
+                            
+                            if not page_token:
+                                break
+                        
+                        # Create a results-like structure with all messages
+                        results = {'messages': all_messages}
                     break
                 except Exception as list_error:
                     retry_count += 1
@@ -159,10 +182,13 @@ class GmailService:
             messages = results.get('messages', [])
             current_app.logger.info(f"Gmail API returned {len(messages)} message IDs, requested {count}")
             current_app.logger.info(f"Total messages in results: {len(results.get('messages', []))}")
+            current_app.logger.info(f"Results keys: {list(results.keys())}")
             if 'nextPageToken' in results:
                 current_app.logger.info(f"More messages available (nextPageToken present)")
             else:
                 current_app.logger.info(f"No more messages available")
+            if len(messages) == 0:
+                current_app.logger.warning(f"No messages returned from Gmail API for query: '{query}'")
             
             if not messages:
                 current_app.logger.info("No messages found matching criteria")
@@ -211,12 +237,22 @@ class GmailService:
                     continue
             
             # Sort emails based on criteria
-            if criteria_type == 'oldest_n':
-                emails.sort(key=lambda x: x['timestamp'])
-            else:
-                emails.sort(key=lambda x: x['timestamp'], reverse=True)
+            try:
+                if criteria_type == 'oldest_n':
+                    emails.sort(key=lambda x: x['timestamp'])
+                else:
+                    emails.sort(key=lambda x: x['timestamp'], reverse=True)
+            except TypeError as e:
+                current_app.logger.warning(f"Sorting failed due to datetime comparison issue: {e}")
+                current_app.logger.info("Proceeding without sorting - emails will be in original order")
+                # Continue without sorting if there's a datetime comparison issue
             
-            current_app.logger.info(f"Returning {len(emails[:count])} emails out of {len(emails)} fetched, requested {count}")
+            current_app.logger.info(f"=== FINAL SUMMARY ===")
+            current_app.logger.info(f"Requested: {count} emails")
+            current_app.logger.info(f"Gmail API returned: {len(messages)} message IDs")
+            current_app.logger.info(f"Successfully parsed: {len(emails)} emails")
+            current_app.logger.info(f"Returning: {len(emails[:count])} emails")
+            current_app.logger.info(f"=== END SUMMARY ===")
             return emails[:count]
             
         except Exception as e:
@@ -226,12 +262,15 @@ class GmailService:
     def parse_email(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """Parse Gmail message into structured data"""
         try:
+            current_app.logger.info(f"Parsing email {message.get('id', 'unknown')}")
             headers = message['payload'].get('headers', [])
             
             # Extract headers
             sender = next((h['value'] for h in headers if h['name'] == 'From'), 'Unknown')
             subject = next((h['value'] for h in headers if h['name'] == 'Subject'), 'No Subject')
             date_str = next((h['value'] for h in headers if h['name'] == 'Date'), '')
+            
+            current_app.logger.info(f"Email headers - From: {sender}, Subject: {subject}")
             
             # Parse date
             timestamp = datetime.now()
@@ -243,6 +282,7 @@ class GmailService:
             
             # Extract body
             body = self.extract_body(message['payload'])
+            current_app.logger.info(f"Body length: {len(body)} characters")
             
             # Clean sender name (remove email part if present)
             sender_name = sender
@@ -251,7 +291,7 @@ class GmailService:
             elif '@' in sender:
                 sender_name = sender.split('@')[0]
             
-            return {
+            email_data = {
                 'id': message['id'],
                 'sender': sender_name,
                 'sender_email': sender,
@@ -260,6 +300,9 @@ class GmailService:
                 'timestamp': timestamp,
                 'date': timestamp.strftime('%Y-%m-%d %H:%M')
             }
+            
+            current_app.logger.info(f"Successfully created email data for: {subject}")
+            return email_data
             
         except Exception as e:
             current_app.logger.error(f"Error parsing email: {e}")
@@ -341,19 +384,13 @@ class GmailService:
             successful_count = 0
             failed_count = 0
             
-            # Group emails by topic/sender for better summarization
-            grouped_emails = self.group_emails_by_topic(emails)
+            # Process each email individually to get the requested count
+            current_app.logger.info(f"Processing {len(emails)} emails individually")
             
-            for group in grouped_emails:
+            for email in emails:
                 try:
-                    if len(group) == 1:
-                        # Single email summary
-                        email = group[0]
-                        summary_text = self.summarize_single_email(email)
-                    else:
-                        # Multiple emails on same topic
-                        summary_text = self.summarize_email_group(group)
-                        email = group[0]  # Use first email for metadata
+                    # Single email summary
+                    summary_text = self.summarize_single_email(email)
                     
                     summaries.append({
                         'id': email['id'],
@@ -361,28 +398,28 @@ class GmailService:
                         'subject': email['subject'],
                         'date': email['date'],
                         'summary': summary_text,
-                        'email_count': len(group),
+                        'email_count': 1,
                         'status': 'success'
                     })
-                    successful_count += len(group)
+                    successful_count += 1
                     
                 except Exception as e:
-                    current_app.logger.error(f"Error summarizing email group: {e}")
-                    failed_count += len(group)
+                    current_app.logger.error(f"Error summarizing email: {e}")
+                    failed_count += 1
                     
                     # Add fallback summary with error info
-                    email = group[0]
                     summaries.append({
                         'id': email['id'],
                         'sender': email['sender'],
                         'subject': email['subject'],
                         'date': email['date'],
                         'summary': f"Email from {email['sender']} about {email['subject']}",
-                        'email_count': len(group),
+                        'email_count': 1,
                         'status': 'failed'
                     })
             
             current_app.logger.info(f"Summarization complete: {successful_count} successful, {failed_count} failed")
+            current_app.logger.info(f"Created {len(summaries)} individual summaries from {len(emails)} emails")
             return summaries
             
         except Exception as e:

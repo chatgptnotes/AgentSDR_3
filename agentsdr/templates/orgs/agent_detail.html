@@ -8,82 +8,7 @@
     testing: false,
     fetchCriteria: 'last_24_hours',
     customCount: 10,
-    error: null,
-    fetchAndSummarizeEmails() {
-        this.fetchingEmails = true;
-        this.error = null;
-
-        const criteria = {
-            type: this.fetchCriteria,
-            count: this.customCount
-        };
-
-        console.log('Sending criteria:', criteria);
-        console.log('customCount value:', this.customCount, 'type:', typeof this.customCount);
-
-        fetch(`/orgs/{{ organization.slug }}/agents/{{ agent.id }}/emails/summarize`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(criteria)
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.error) {
-                this.error = data.error;
-            } else if (data.redirect_url) {
-                // Redirect to the dedicated summaries page
-                showToast(`Found ${data.count} emails. Redirecting to summaries...`, 'success');
-                setTimeout(() => {
-                    window.location.href = data.redirect_url;
-                }, 1000);
-            }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            this.error = `Failed to fetch and summarize emails: ${error.message}`;
-        })
-        .finally(() => {
-            this.fetchingEmails = false;
-        });
-    },
-    testConnection() {
-        this.testing = true;
-        this.error = null;
-        
-        fetch(`/orgs/{{ organization.slug }}/agents/{{ agent.id }}/emails/test`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.success) {
-                showToast(`✓ Gmail connection working! Email: ${data.email}, Total messages: ${data.total_messages}`, 'success');
-            } else {
-                this.error = data.error || 'Connection test failed';
-            }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            this.error = `Connection test failed: ${error.message}`;
-        })
-        .finally(() => {
-            this.testing = false;
-        });
-    }
+    error: null
 }">
     <!-- Enhanced Header -->
     <div class="card-gradient rounded-xl shadow-lg overflow-hidden">
@@ -151,11 +76,11 @@
                         <p class="text-green-600 text-sm">Your Gmail account is connected and ready to use.</p>
                     </div>
                 </div>
-                <button @click="testConnection()" 
-                        :disabled="testing"
+                <button onclick="testConnection()" 
+                        :disabled="$store.emailData.testing"
                         class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm">
-                    <span x-show="!testing">Test Connection</span>
-                    <span x-show="testing">Testing...</span>
+                    <span x-show="!$store.emailData.testing">Test Connection</span>
+                    <span x-show="$store.emailData.testing">Testing...</span>
                 </button>
             </div>
 
@@ -164,42 +89,42 @@
                 <h4 class="text-lg font-semibold text-gray-900 mb-4">Choose Email Criteria</h4>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 reveal-list">
                     <button type="button" 
-                            :class="fetchCriteria === 'last_24_hours' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'"
-                            @click="fetchCriteria = 'last_24_hours'"
+                            :class="$store.emailData.fetchCriteria === 'last_24_hours' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'"
+                            @click="$store.emailData.fetchCriteria = 'last_24_hours'"
                             class="border-2 rounded-lg p-4 text-left hover:border-blue-400 transition-colors">
                         <div class="font-medium text-gray-900">Last 24 Hours</div>
                         <div class="text-sm text-gray-600">Get emails from the past day</div>
                     </button>
                     
                     <button type="button" 
-                            :class="fetchCriteria === 'last_7_days' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'"
-                            @click="fetchCriteria = 'last_7_days'"
+                            :class="$store.emailData.fetchCriteria === 'last_7_days' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'"
+                            @click="$store.emailData.fetchCriteria = 'last_7_days'"
                             class="border-2 rounded-lg p-4 text-left hover:border-blue-400 transition-colors">
                         <div class="font-medium text-gray-900">Last 7 Days</div>
                         <div class="text-sm text-gray-600">Get emails from the past week</div>
                     </button>
                     
                     <button type="button" 
-                            :class="fetchCriteria === 'latest_n' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'"
-                            @click="fetchCriteria = 'latest_n'"
+                            :class="$store.emailData.fetchCriteria === 'latest_n' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'"
+                            @click="$store.emailData.fetchCriteria = 'latest_n'"
                             class="border-2 rounded-lg p-4 text-left hover:border-blue-400 transition-colors">
                         <div class="font-medium text-gray-900">Latest N Emails</div>
                         <div class="text-sm text-gray-600">Get the most recent emails</div>
-                        <div x-show="fetchCriteria === 'latest_n'" class="mt-2">
-                            <input type="number" x-model.number="customCount" min="1" max="100" 
+                        <div x-show="$store.emailData.fetchCriteria === 'latest_n'" class="mt-2">
+                            <input type="number" x-model.number="$store.emailData.customCount" min="1" max="100" 
                                    class="w-20 px-2 py-1 border border-gray-300 rounded text-sm">
                             <span class="text-sm text-gray-600 ml-1">emails</span>
                         </div>
                     </button>
                     
                     <button type="button" 
-                            :class="fetchCriteria === 'oldest_n' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'"
-                            @click="fetchCriteria = 'oldest_n'"
+                            :class="$store.emailData.fetchCriteria === 'oldest_n' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'"
+                            @click="$store.emailData.fetchCriteria = 'oldest_n'"
                             class="border-2 rounded-lg p-4 text-left hover:border-blue-400 transition-colors">
                         <div class="font-medium text-gray-900">Oldest N Emails</div>
                         <div class="text-sm text-gray-600">Get the oldest unread emails</div>
-                        <div x-show="fetchCriteria === 'oldest_n'" class="mt-2">
-                            <input type="number" x-model.number="customCount" min="1" max="100" 
+                        <div x-show="$store.emailData.fetchCriteria === 'oldest_n'" class="mt-2">
+                            <input type="number" x-model.number="$store.emailData.customCount" min="1" max="100" 
                                    class="w-20 px-2 py-1 border border-gray-300 rounded text-sm">
                             <span class="text-sm text-gray-600 ml-1">emails</span>
                         </div>
@@ -209,12 +134,12 @@
 
             <!-- Fetch Button -->
             <div class="text-center">
-                <button @click="fetchAndSummarizeEmails()" 
-                        :disabled="fetchingEmails"
+                <button onclick="fetchAndSummarizeEmails()" 
+                        :disabled="$store.emailData.fetchingEmails"
                         class="btn-gradient inline-flex items-center py-4 px-8 rounded-xl font-semibold text-lg transition-all duration-300 hover:scale-105"
-                        :class="{ 'opacity-50 cursor-not-allowed': fetchingEmails }">
-                    <span x-show="!fetchingEmails">📧 Fetch & Summarize Emails</span>
-                    <span x-show="fetchingEmails" class="flex items-center">
+                        :class="{ 'opacity-50 cursor-not-allowed': $store.emailData.fetchingEmails }">
+                    <span x-show="!$store.emailData.fetchingEmails">📧 Fetch & Summarize Emails</span>
+                    <span x-show="$store.emailData.fetchingEmails" class="flex items-center">
                         <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -225,13 +150,78 @@
             </div>
 
             <!-- Error Display -->
-            <div x-show="error" class="p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div x-show="$store.emailData.error" class="p-4 bg-red-50 border border-red-200 rounded-lg">
                 <div class="flex items-center">
                     <span class="text-red-500 mr-2">❌</span>
-                    <span class="text-red-700" x-text="error"></span>
+                    <span class="text-red-700" x-text="$store.emailData.error"></span>
                 </div>
             </div>
 
+            <!-- Summaries Container -->
+            <div id="summaries-container" class="mt-8">
+                <!-- Summaries will be displayed here -->
+            </div>
+
+            <!-- Automated Scheduling Section -->
+            <div class="bg-white rounded-xl shadow-lg p-8 mt-8">
+                <div class="flex items-center space-x-3 mb-6">
+                    <div class="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center">
+                        <span class="text-white text-lg">⏰</span>
+                    </div>
+                    <h3 class="text-2xl font-bold text-gray-900">Automated Daily Summaries</h3>
+                </div>
+
+                <div class="space-y-6">
+                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                        <div class="flex items-start space-x-3">
+                            <div class="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                                <span class="text-white text-xs">ℹ️</span>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold text-blue-900 mb-1">How it works</h4>
+                                <p class="text-blue-700 text-sm">
+                                    Set up automated daily email summaries that will be sent to your email at your chosen time. 
+                                    The system will automatically fetch emails from the last 24 hours and send you a summary.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Schedule Form -->
+                    <div class="space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Daily Time</label>
+                                <input type="time" id="scheduleTime" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Recipient Email</label>
+                                <input type="email" id="recipientEmail" placeholder="your-email@example.com" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-center space-x-4">
+                            <button onclick="saveSchedule()" class="btn-gradient py-3 px-6 rounded-lg font-semibold transition-all duration-300 hover:scale-105">
+                                💾 Save Schedule
+                            </button>
+                            <button onclick="toggleSchedule()" id="toggleScheduleBtn" class="px-4 py-3 bg-gray-600 text-white rounded-lg font-semibold transition-all duration-300 hover:scale-105">
+                                ⏸️ Pause Schedule
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Current Schedule Display -->
+                    <div id="currentSchedule" class="hidden bg-gray-50 border border-gray-200 rounded-lg p-4">
+                        <h4 class="font-semibold text-gray-900 mb-2">Current Schedule</h4>
+                        <div class="text-sm text-gray-600">
+                            <p><strong>Time:</strong> <span id="currentTime">-</span></p>
+                            <p><strong>Email:</strong> <span id="currentEmail">-</span></p>
+                            <p><strong>Status:</strong> <span id="currentStatus">-</span></p>
+                            <p><strong>Last Run:</strong> <span id="lastRun">-</span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
         </div>
         {% endif %}
@@ -261,6 +251,240 @@ async function connectGmail(orgSlug, agentId) {
     }
 }
 
+function fetchAndSummarizeEmails() {
+    const alpine = Alpine.store('emailData');
+    alpine.fetchingEmails = true;
+    alpine.error = null;
 
+    const criteria = {
+        type: alpine.fetchCriteria,
+        count: alpine.customCount
+    };
+
+    console.log('Sending criteria:', criteria);
+    console.log('customCount value:', alpine.customCount, 'type:', typeof alpine.customCount);
+
+    fetch(`/orgs/{{ organization.slug }}/agents/{{ agent.id }}/emails/summarize`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(criteria)
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.error) {
+            alpine.error = data.error;
+        } else if (data.success) {
+            // Display summaries directly on this page
+            showToast(`Found ${data.count} emails!`, 'success');
+            displaySummaries(data.summaries, data.criteria_type);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alpine.error = `Failed to fetch and summarize emails: ${error.message}`;
+    })
+    .finally(() => {
+        alpine.fetchingEmails = false;
+    });
+}
+
+function displaySummaries(summaries, criteriaType) {
+    // Create summaries display HTML
+    const summariesHtml = summaries.map((summary, index) => `
+        <div class="p-6 hover:bg-gray-50 transition-colors border-b border-gray-200">
+            <div class="flex items-start justify-between">
+                <div class="flex-1">
+                    <div class="flex items-center space-x-3 mb-2">
+                        <div class="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                            <span class="text-white font-semibold text-sm">${summary.sender ? summary.sender[0].toUpperCase() : '?'}</span>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold text-gray-900">${summary.sender || 'Unknown'}</h3>
+                            <p class="text-sm text-gray-500">${summary.date || 'Unknown date'}</p>
+                        </div>
+                    </div>
+                    
+                    <h4 class="font-medium text-gray-900 mb-2">${summary.subject || 'No Subject'}</h4>
+                    
+                    <div class="bg-gray-50 rounded-lg p-4 mb-3">
+                        <p class="text-gray-700 leading-relaxed">${summary.summary || 'No summary available'}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+
+    // Update the summaries container
+    const summariesContainer = document.getElementById('summaries-container');
+    if (summariesContainer) {
+        summariesContainer.innerHTML = `
+            <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+                <div class="px-8 py-6 border-b border-gray-200">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-bold text-gray-900">Email Summaries</h2>
+                            <p class="text-gray-600 mt-1">${summaries.length} email${summaries.length !== 1 ? 's' : ''} summarized</p>
+                        </div>
+                        <div class="text-sm text-gray-500">
+                            Criteria: ${criteriaType.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="divide-y divide-gray-200">
+                    ${summariesHtml}
+                </div>
+            </div>
+        `;
+        
+        // Scroll to summaries
+        summariesContainer.scrollIntoView({ behavior: 'smooth' });
+    }
+}
+
+function testConnection() {
+    const alpine = Alpine.store('emailData');
+    alpine.testing = true;
+    alpine.error = null;
+    
+    fetch(`/orgs/{{ organization.slug }}/agents/{{ agent.id }}/emails/test`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.success) {
+            showToast(`✓ Gmail connection working! Email: ${data.email}, Total messages: ${data.total_messages}`, 'success');
+        } else {
+            alpine.error = data.error || 'Connection test failed';
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alpine.error = `Connection test failed: ${error.message}`;
+    })
+    .finally(() => {
+        alpine.testing = false;
+    });
+}
+
+// Initialize Alpine.js store
+document.addEventListener('alpine:init', () => {
+    Alpine.store('emailData', {
+        fetchingEmails: false,
+        testing: false,
+        fetchCriteria: 'last_24_hours',
+        customCount: 10,
+        error: null
+    });
+});
+
+// Scheduling functions
+function saveSchedule() {
+    const scheduleTime = document.getElementById('scheduleTime').value;
+    const recipientEmail = document.getElementById('recipientEmail').value;
+    
+    if (!scheduleTime || !recipientEmail) {
+        showToast('Please fill in both time and email fields', 'error');
+        return;
+    }
+    
+    fetch(`/orgs/{{ organization.slug }}/agents/{{ agent.id }}/schedule`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            schedule_time: scheduleTime,
+            recipient_email: recipientEmail,
+            criteria_type: 'last_24_hours'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showToast('Schedule saved successfully!', 'success');
+            loadCurrentSchedule();
+        } else {
+            showToast(data.error || 'Failed to save schedule', 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error saving schedule:', error);
+        showToast('Failed to save schedule', 'error');
+    });
+}
+
+function toggleSchedule() {
+    fetch(`/orgs/{{ organization.slug }}/agents/{{ agent.id }}/schedule/toggle`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showToast(data.is_active ? 'Schedule activated!' : 'Schedule paused!', 'success');
+            loadCurrentSchedule();
+        } else {
+            showToast(data.error || 'Failed to toggle schedule', 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error toggling schedule:', error);
+        showToast('Failed to toggle schedule', 'error');
+    });
+}
+
+function loadCurrentSchedule() {
+    fetch(`/orgs/{{ organization.slug }}/agents/{{ agent.id }}/schedule`)
+    .then(response => response.json())
+    .then(data => {
+        if (data.schedule) {
+            document.getElementById('currentSchedule').classList.remove('hidden');
+            document.getElementById('currentTime').textContent = data.schedule.schedule_time;
+            document.getElementById('currentEmail').textContent = data.schedule.recipient_email;
+            document.getElementById('currentStatus').textContent = data.schedule.is_active ? 'Active' : 'Paused';
+            document.getElementById('lastRun').textContent = data.schedule.last_run_at ? new Date(data.schedule.last_run_at).toLocaleString() : 'Never';
+            
+            // Update form fields
+            document.getElementById('scheduleTime').value = data.schedule.schedule_time;
+            document.getElementById('recipientEmail').value = data.schedule.recipient_email;
+            
+            // Update toggle button
+            const toggleBtn = document.getElementById('toggleScheduleBtn');
+            if (data.schedule.is_active) {
+                toggleBtn.textContent = '⏸️ Pause Schedule';
+                toggleBtn.className = 'px-4 py-3 bg-red-600 text-white rounded-lg font-semibold transition-all duration-300 hover:scale-105';
+            } else {
+                toggleBtn.textContent = '▶️ Activate Schedule';
+                toggleBtn.className = 'px-4 py-3 bg-green-600 text-white rounded-lg font-semibold transition-all duration-300 hover:scale-105';
+            }
+        } else {
+            document.getElementById('currentSchedule').classList.add('hidden');
+        }
+    })
+    .catch(error => {
+        console.error('Error loading schedule:', error);
+    });
+}
+
+// Load current schedule on page load
+document.addEventListener('DOMContentLoaded', loadCurrentSchedule);
 </script>
 {% endblock %}

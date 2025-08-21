@@ -85,6 +85,32 @@ CREATE INDEX IF NOT EXISTS idx_invitations_email ON public.invitations(email);
 CREATE INDEX IF NOT EXISTS idx_records_org_id ON public.records(org_id);
 CREATE INDEX IF NOT EXISTS idx_records_created_by ON public.records(created_by);
 
+-- Create agent_schedules table for automated email summarization
+CREATE TABLE IF NOT EXISTS public.agent_schedules (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    agent_id UUID NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+    org_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    is_active BOOLEAN DEFAULT TRUE,
+    schedule_time TIME NOT NULL, -- Time of day (e.g., '09:00:00')
+    timezone TEXT DEFAULT 'UTC',
+    recipient_email TEXT NOT NULL,
+    criteria_type TEXT DEFAULT 'last_24_hours',
+    created_by UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_run_at TIMESTAMP WITH TIME ZONE,
+    next_run_at TIMESTAMP WITH TIME ZONE
+);
+
+-- Create indexes for agent_schedules
+CREATE INDEX IF NOT EXISTS idx_agent_schedules_agent_id ON public.agent_schedules(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_schedules_org_id ON public.agent_schedules(org_id);
+CREATE INDEX IF NOT EXISTS idx_agent_schedules_next_run ON public.agent_schedules(next_run_at);
+CREATE INDEX IF NOT EXISTS idx_agent_schedules_active ON public.agent_schedules(is_active);
+
+-- Enable RLS for agent_schedules
+ALTER TABLE public.agent_schedules ENABLE ROW LEVEL SECURITY;
+
 -- Enable Row Level Security (RLS)
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
