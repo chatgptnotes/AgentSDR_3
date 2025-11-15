@@ -8,10 +8,11 @@
     <link href="{{ url_for('static', filename='css/tailwind.css') }}" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-        <style>[x-cloak]{display:none !important;}</style>
-
+    <style>[x-cloak]{display:none !important;}</style>
+    {% block meta %}{% endblock %}
 </head>
 <body class="hero-gradient min-h-screen" x-data="{ sidebarOpen: false }">
     <!-- Enhanced Navigation -->
@@ -186,6 +187,36 @@
 
     <!-- Toast Notifications -->
     <div id="toast-container" class="fixed top-4 right-4 z-50"></div>
+
+    <!-- Version Footer -->
+    <footer class="bg-gray-900/50 backdrop-blur-sm border-t border-white/5 py-3 mt-auto">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex flex-col sm:flex-row items-center justify-between text-xs text-gray-500">
+                <div class="flex items-center space-x-4 mb-2 sm:mb-0">
+                    <span class="flex items-center">
+                        <span class="material-icons" style="font-size: 14px; margin-right: 4px;">info</span>
+                        Version {{ app_version.version }}
+                    </span>
+                    <span class="hidden sm:inline">•</span>
+                    <span class="flex items-center">
+                        <span class="material-icons" style="font-size: 14px; margin-right: 4px;">schedule</span>
+                        Updated {{ app_version.last_updated }}
+                    </span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <a href="{{ app_version.repository_url }}" target="_blank" rel="noopener noreferrer" class="flex items-center hover:text-red-400 transition-colors duration-200">
+                        <span class="material-icons" style="font-size: 14px; margin-right: 4px;">code</span>
+                        {{ app_version.repository }}
+                    </a>
+                    <span class="hidden sm:inline">•</span>
+                    <span class="flex items-center">
+                        <span class="material-icons" style="font-size: 14px; margin-right: 4px;">copyright</span>
+                        2025 {{ app_version.app_name }}
+                    </span>
+                </div>
+            </div>
+        </div>
+    </footer>
 
     <script>
         // Toast notification function

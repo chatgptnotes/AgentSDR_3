@@ -57,4 +57,12 @@ def create_app(config_name=None):
     def load_user(user_id):
         return User.get_by_id(user_id)
 
+    # Context processor to inject version info into all templates
+    from agentsdr.utils.version import get_version_info
+    @app.context_processor
+    def inject_version_info():
+        return {
+            'app_version': get_version_info()
+        }
+
     return app

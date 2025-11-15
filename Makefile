@@ -121,9 +121,12 @@ deploy-check: ## Check deployment readiness
 		missing = [k for k in required if not os.getenv(k)]; \
 		print('❌ Missing environment variables:', missing) if missing else print('✅ All required env vars set')"
 
-# Version increment
-version-bump: ## Increment version number
-	@echo "Current version: $$(grep 'APP_VERSION' .env | cut -d'=' -f2)"
-	@read -p "Enter new version: " version; \
-	sed -i.bak "s/APP_VERSION=.*/APP_VERSION=$$version/" .env && rm .env.bak
-	@echo "Version updated to: $$(grep 'APP_VERSION' .env | cut -d'=' -f2)"
+# Version management
+version: ## Show current version
+	@./venv/bin/python scripts/increment_version.py --show 2>/dev/null || \
+	./venv/bin/python -c "from agentsdr.utils.version import get_version_info; info = get_version_info(); print(f\"Version: {info['version']}\nDate: {info['last_updated']}\nRepository: {info['repository']}\")"
+
+version-increment: ## Increment version number
+	@./venv/bin/python scripts/increment_version.py
+
+version-bump: version-increment ## Alias for version-increment
